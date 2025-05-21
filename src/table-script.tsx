@@ -20,56 +20,105 @@ import type { SourceDataType, TableDataType } from "./types";
  * @prop {number} netEarningsPrevMonth - The net earnings for the previous month.
  */
 
+// Get all month names from both employees and externals for variable table header
+const allMonths = sourceData
+  .flatMap(
+    (row: any) =>
+      row?.employees?.workforceUtilisation?.lastThreeMonthsIndividually ??
+      row?.externals?.workforceUtilisation?.lastThreeMonthsIndividually ??
+      []
+  )
+  .map((m: any) => m.month);
+//Remove duplicates and sort by recent
+const uniqueMonths = [...new Set(allMonths)].slice(0, 3);
+
+const formatPercent = (val: string | number | undefined): string => {
+  const num = typeof val === "string" ? parseFloat(val) : val;
+  if (!num || isNaN(num)) return "0%";
+  return `${Math.round(num * 100)}%`;
+};
+
+const getMonthUtil = (month: string, dataRow: any): string => {
+  const months =
+    dataRow?.employees?.workforceUtilisation?.lastThreeMonthsIndividually ??
+    dataRow?.externals?.workforceUtilisation?.lastThreeMonthsIndividually ??
+    [];
+
+  const val = months.find((m: any) => m.month === month)?.utilisationRate;
+  return formatPercent(val);
+};
+
 const tableData: TableDataType[] = (
   sourceData as unknown as SourceDataType[]
 ).map((dataRow, index) => {
-  const person = `${dataRow?.employees?.firstname} - ...`;
+  const person = dataRow?.employees?.name ?? dataRow?.externals?.name ?? "–";
+  const past12Months =
+    dataRow?.employees?.workforceUtilisation?.utilisationRateLastTwelveMonths ??
+    dataRow?.externals?.workforceUtilisation?.utilisationRateLastTwelveMonths ??
+    "-";
+  const y2d =
+    dataRow?.employees?.workforceUtilisation?.utilisationRateYearToDate ??
+    dataRow?.externals?.workforceUtilisation?.utilisationRateYearToDate ??
+    "-";
+
+  const monthlyValues: { [key: string]: string } = {};
+  uniqueMonths.forEach((month) => {
+    monthlyValues[month.toLowerCase()] = getMonthUtil(month, dataRow);
+  });
+
+  const getLatestEarnings = (dataRow: any): string => {
+    const earningsList =
+      dataRow.employees?.costsByMonth?.potentialEarningsByMonth ||
+      dataRow.externals?.costsByMonth?.potentialEarningsByMonth ||
+      [];
+
+    if (!earningsList.length) return "–";
+
+    let latest = earningsList[0];
+
+    for (let i = 1; i < earningsList.length; i++) {
+      if (earningsList[i].month > latest.month) {
+        latest = earningsList[i];
+      }
+    }
+
+    const value = parseFloat(latest.costs);
+    return isNaN(value) ? "–" : value.toFixed(2) + " EUR";
+  };
 
   const row: TableDataType = {
     person: `${person}`,
-    past12Months: `past12Months ${index} placeholder`,
-    y2d: `y2d ${index} placeholder`,
-    may: `may ${index} placeholder`,
-    june: `june ${index} placeholder`,
-    july: `july ${index} placeholder`,
-    netEarningsPrevMonth: `netEarningsPrevMonth ${index} placeholder`,
-  };
+    past12Months: formatPercent(past12Months),
+    y2d: formatPercent(y2d),
+    ...monthlyValues,
+    netEarningsPrevMonth: getLatestEarnings(dataRow),
+  } as any;
 
   return row;
 });
 
 const Example = () => {
+  // Static columns
+  const staticColumns: MRT_ColumnDef<TableDataType>[] = [
+    { accessorKey: "person", header: "Person" },
+    { accessorKey: "past12Months", header: "Past 12 Months" },
+    { accessorKey: "y2d", header: "YTD" },
+  ];
+
+  // Dynamic month columns
+  const monthColumns = uniqueMonths.map((month) => ({
+    accessorKey: month.toLowerCase(),
+    header: month,
+  }));
+
+  // Final column
+  const earningsColumn = {
+    accessorKey: "netEarningsPrevMonth",
+    header: "Net Earnings Prev Month",
+  };
+
   const columns = useMemo<MRT_ColumnDef<TableDataType>[]>(
-    () => [
-      {
-        accessorKey: "person",
-        header: "Person",
-      },
-      {
-        accessorKey: "past12Months",
-        header: "Past 12 Months",
-      },
-      {
-        accessorKey: "y2d",
-        header: "Y2D",
-      },
-      {
-        accessorKey: "may",
-        header: "May",
-      },
-      {
-        accessorKey: "june",
-        header: "June",
-      },
-      {
-        accessorKey: "july",
-        header: "July",
-      },
-      {
-        accessorKey: "netEarningsPrevMonth",
-        header: "Net Earnings Prev Month",
-      },
-    ],
+    () => [...staticColumns, ...monthColumns, earningsColumn],
     []
   );
 
